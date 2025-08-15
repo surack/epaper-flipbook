@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daily E‑Paper Flipbook Dashboard</title>
+  <style>
+    :root { --bg: #0b1020; --card:#111833; --ink:#e7ebff; --muted:#aab3d6; --accent:#6ea8ff; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Ubuntu,Arial,sans-serif}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px}
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin:12px 0 22px}
+    h1{font-size:clamp(22px,2.8vw,32px);margin:0}
+    .pill{background:#0d224a;border:1px solid #1a3b7a;color:#cfe0ff;padding:6px 10px;border-radius:999px;font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+    .card{background:var(--card);border:1px solid #212a4d;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    .title{font-weight:700}
+    .muted{color:var(--muted);font-size:12px}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:#122550;color:#e6eeff;border:1px solid #1e3c7b;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    button:hover{filter:brightness(1.1)}
+    .ok{background:#1d3b74}
+    .copy{background:#0f2a44}
+    .danger{background:#3d1a1a;border-color:#6b2a2a}
+    .status{margin:10px 0 18px;color:var(--muted);font-size:13px}
+    .footer{margin:30px 0 10px;color:#7d89b6;font-size:12px;text-align:center}
+
+    /* Viewer modal */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center}
+    .sheet{width:min(1200px,96vw);height:min(92vh,900px);background:#0a0f1f;border:1px solid #22325e;border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+    .bar{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px;border-bottom:1px solid #22325e;background:#0c1733}
+    .bar .row{align-items:center}
+    .viewer{flex:1;position:relative;background:#050814}
+    iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+    .tabs{display:flex;gap:8px}
+    .tab{padding:6px 10px;border-radius:8px;border:1px solid #2a3d6f;background:#0a214a;color:#cfe0ff;cursor:pointer}
+    .tab.active{background:#20417b}
+
+    /* Flipbook container */
+    #flipbookHolder{position:absolute;inset:0;display:none;padding:12px}
+    #flipbook{width:100%;height:100%;}
+    .hint{font-size:12px;color:#9cb0e6}
+  </style>
+  <!-- Firebase (compat SDKs for simplicity) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-database-compat.js"></script>
+  
+  <!-- PDF.js for optional flipbook mode -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // Worker for pdf.js
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+  <!-- PageFlip (flipbook effect) - optional, used only if loaded successfully -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/css/page-flip.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Daily E‑Paper Dashboard</h1>
+      <span class="pill" id="clock">—</span>
+    </header>
+
+    <div class="status" id="status">Loading links from Firebase…</div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="footer">Free static site on GitHub Pages · Flipbook mode is experimental and may fall back to standard viewer if the PDF host blocks cross‑origin access.</div>
+  </div>
+
+  <!-- Viewer Modal -->
+  <div class="overlay" id="overlay" role="dialog" aria-modal="true">
+    <div class="sheet">
+      <div class="bar">
+        <div class="row">
+          <strong id="vTitle">Viewer</strong>
+          <span class="muted" id="vDate"></span>
+        </div>
+        <div class="row">
+          <div class="tabs">
+            <button class="tab active" id="tab-embed">Standard Viewer</button>
+            <button class="tab" id="tab-flip">Flipbook (beta)</button>
+          </div>
+          <button class="danger" id="btnClose">Close</button>
+        </div>
+      </div>
+      <div class="viewer">
+        <iframe id="pdfFrame" allowfullscreen loading="lazy"></iframe>
+        <div id="flipbookHolder">
+          <div id="flipbook"></div>
+          <div class="hint" style="position:absolute;right:12px;bottom:8px">Tip: try dragging a page edge</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ===== 1) Firebase client config — replace placeholders with your web app config =====
+// In Firebase Console → Project settings → General → Your apps → Web app → Config
+const firebaseConfig = {
+  apiKey: "AIzaSyBivo6UXuaLPCW_DfVy1IWkmsfO7WxXZf0",
+  authDomain: "news-c3d18.firebaseapp.com",
+  databaseURL: "https://news-c3d18-default-rtdb.firebaseio.com",
+  projectId: "news-c3d18",
+  storageBucket: "news-c3d18.firebasestorage.app",
+  messagingSenderId: "571837405581",
+  appId: "1:571837405581:web:626b3756f7e83c9131c5c4"
+};
+firebase.initializeApp(firebaseConfig);
+const rtdb = firebase.database();
+
+// If your automation writes at DB root with the eight titles as keys, keep PATH = "/".
+// If you decide to store them under /publicLinks, change to "/publicLinks" and update your automation script accordingly.
+const PATH = "/";
+
+// The eight titles we expect (for ordering & pretty labels)
+const TITLES = [
+  "Hindu Daily Analysis",
+  "Mint",
+  "The Telegraph",
+  "Financial Express",
+  "Business Standard",
+  "The Hindu",
+  "Times Of India",
+  "Economic Times"
+];
+
+// ===== 2) UI helpers =====
+const $ = sel => document.querySelector(sel);
+const cards = $('#cards');
+const statusEl = $('#status');
+const overlay = $('#overlay');
+const vTitle = $('#vTitle');
+const vDate = $('#vDate');
+const pdfFrame = $('#pdfFrame');
+const flipbookHolder = $('#flipbookHolder');
+const tabEmbed = $('#tab-embed');
+const tabFlip = $('#tab-flip');
+const btnClose = $('#btnClose');
+
+function setClock(){
+  const now = new Date();
+  $('#clock').textContent = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+}
+setInterval(setClock, 1000); setClock();
+
+function deriveViewerURL(url){
+  if(!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('drive.google.com')) {
+      // Prefer Google Drive preview for reliability
+      const idFromPath = url.match(/\/file\/d\/([^/]+)/);
+      const idFromQuery = u.searchParams.get('id');
+      const fileId = idFromPath ? idFromPath[1] : idFromQuery;
+      if (fileId) return `https://drive.google.com/file/d/${fileId}/preview`;
+      // Fallback to direct (may download)
+      return url;
+    }
+    // Use Mozilla PDF.js web viewer for generic PDFs
+    const viewer = 'https://mozilla.github.io/pdf.js/web/viewer.html?file=' + encodeURIComponent(url);
+    return viewer;
+  } catch(e) {
+    return url;
+  }
+}
+
+function createCard(title, link){
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = `
+    <div class="title">${title}</div>
+    <div class="muted">${link ? 'Ready' : 'No link yet'} · ${new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})}</div>
+    <div class="row">
+      <button class="ok" data-act="open">Open</button>
+      <button class="copy" data-act="copy">Copy link</button>
+      ${link ? '' : '<span class="muted">(waiting for today\'s update)</span>'}
+    </div>
+  `;
+  div.querySelector('[data-act="open"]').onclick = () => openViewer(title, link);
+  div.querySelector('[data-act="copy"]').onclick = async () => {
+    if (!link) return alert('No link for this title today.');
+    try{ await navigator.clipboard.writeText(link); alert('Link copied to clipboard'); }catch(e){ prompt('Copy this link:', link); }
+  };
+  return div;
+}
+
+function renderCards(snapshot){
+  cards.innerHTML = '';
+  const data = snapshot.val() || {};
+  let count = 0;
+  TITLES.forEach(t => {
+    const link = data[t] || null;
+    cards.appendChild(createCard(t, link));
+    if (link) count++;
+  });
+  statusEl.textContent = `Loaded ${count}/${TITLES.length} links for today.`;
+}
+
+// ===== 3) Realtime DB read (public read-only) =====
+// Ensure your database rules allow read: true (or for PATH specifically) and write: false for anonymous users.
+function subscribe(){
+  rtdb.ref(PATH).on('value', renderCards, err => {
+    statusEl.textContent = 'Failed to read Firebase: ' + err.message;
+  });
+}
+subscribe();
+
+// ===== 4) Viewer modal logic =====
+let currentMode = 'embed';
+function setMode(mode){
+  currentMode = mode;
+  tabEmbed.classList.toggle('active', mode==='embed');
+  tabFlip.classList.toggle('active', mode==='flip');
+  pdfFrame.style.display = (mode==='embed') ? 'block' : 'none';
+  flipbookHolder.style.display = (mode==='flip') ? 'block' : 'none';
+}
+
+async function openViewer(title, link){
+  vTitle.textContent = title;
+  vDate.textContent = new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+  if(!link){ alert('No link available for this title today yet.'); return; }
+
+  // Default: Standard embed (reliable)
+  const viewerURL = deriveViewerURL(link);
+  pdfFrame.src = viewerURL || link;
+  setMode('embed');
+
+  // Prepare flipbook in the background (best effort)
+  try {
+    await buildFlipbook(link);
+  } catch (e) {
+    // Silently ignore; user can keep standard viewer
+    console.warn('Flipbook failed, falling back to standard viewer:', e);
+  }
+
+  overlay.style.display = 'flex';
+}
+
+btnClose.onclick = () => { overlay.style.display = 'none'; pdfFrame.src = 'about:blank'; cleanupFlipbook(); };
+$('#overlay').addEventListener('click', (e)=>{ if(e.target===overlay) btnClose.click(); });
+
+tabEmbed.onclick = () => setMode('embed');
+tabFlip.onclick = () => setMode('flip');
+
+// ===== 5) Flipbook builder (experimental) =====
+let pageFlip = null;
+function cleanupFlipbook(){ if(pageFlip){ pageFlip.destroy(); pageFlip = null; } $('#flipbook').innerHTML = ''; }
+
+async function buildFlipbook(pdfUrl){
+  cleanupFlipbook();
+  if (!window['pdfjsLib'] || !window['St'] || !St.PageFlip) throw new Error('Flip deps missing');
+
+  // Try to load the PDF with pdf.js (may fail if host blocks cross‑origin). If it fails, we keep standard viewer only.
+  const loadingTask = pdfjsLib.getDocument({ url: pdfUrl, withCredentials: false });
+  const pdf = await loadingTask.promise;
+
+  const maxPages = Math.min(pdf.numPages, 30); // safety cap
+  const images = [];
+  for (let p = 1; p <= maxPages; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 1.4 });
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    images.push(canvas.toDataURL('image/png'));
+  }
+
+  // Initialize PageFlip
+  pageFlip = new St.PageFlip(document.getElementById('flipbook'), {
+    width: 700,
+    height: 900,
+    size: 'stretch',
+    maxShadowOpacity: 0.5,
+    showCover: true,
+    usePortrait: true,
+    mobileScrollSupport: true,
+  });
+  pageFlip.loadFromImages(images);
+}
+</script>
+</body>
+</html>
