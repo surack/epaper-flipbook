@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Daily E‑Paper Flipbook Dashboard</title>
+  <title>Daily E‑Paper Flipbook</title>
   <style>
     :root { --bg: #0b1020; --card:#111833; --ink:#e7ebff; --muted:#aab3d6; --accent:#6ea8ff; }
     html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Ubuntu,Arial,sans-serif}
@@ -15,12 +15,11 @@
     .card{background:var(--card);border:1px solid #212a4d;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
     .title{font-weight:700}
     .muted{color:var(--muted);font-size:12px}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    button{background:#122550;color:#e6eeff;border:1px solid #1e3c7b;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
-    button:hover{filter:brightness(1.1)}
-    .ok{background:#1d3b74}
-    .copy{background:#0f2a44}
-    .danger{background:#3d1a1a;border-color:#6b2a2a}
+    .thumbWrap{display:flex;align-items:center;justify-content:center;padding:6px 2px}
+    .thumb{width:100%;max-width:260px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);border:1px solid #22325e;cursor:pointer;transition:transform .15s ease, opacity .15s ease, filter .15s ease;background:#0a1229}
+    .thumb:hover{transform:scale(1.02)}
+    .thumb.disabled{filter:grayscale(1) contrast(.9) opacity(.7);cursor:not-allowed}
+
     .status{margin:10px 0 18px;color:var(--muted);font-size:13px}
     .footer{margin:30px 0 10px;color:#7d89b6;font-size:12px;text-align:center}
 
@@ -59,15 +58,15 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>Daily E‑Paper Dashboard</h1>
+      <h1>Daily E‑Paper Flipbook</h1>
       <span class="pill" id="clock">—</span>
     </header>
 
-    <div class="status" id="status">Loading e-papers…</div>
+    <div class="status" id="status">Ruko Zara Sabar Karo......</div>
 
     <div class="grid" id="cards"></div>
 
-    <div class="footer">Developed by "Surack" · Flipbook mode is experimental and may fall back to standard viewer.</div>
+    <div class="footer">Developed with love by "Surack". Flipbook mode is experimental and may fall back to a standard viewer if the PDF host blocks cross‑origin access.</div>
   </div>
 
   <!-- Viewer Modal -->
@@ -78,12 +77,12 @@
           <strong id="vTitle">Viewer</strong>
           <span class="muted" id="vDate"></span>
         </div>
-        <div class="row">
+        <div class="row" style="display:flex;gap:8px;align-items:center">
           <div class="tabs">
             <button class="tab active" id="tab-embed">Standard Viewer</button>
             <button class="tab" id="tab-flip">Flipbook (beta)</button>
           </div>
-          <button class="danger" id="btnClose">Close</button>
+          <button class="tab" id="btnClose" style="border-color:#6b2a2a;background:#3d1a1a">Close</button>
         </div>
       </div>
       <div class="viewer">
@@ -126,6 +125,24 @@ const TITLES = [
   "Times Of India",
   "Economic Times"
 ];
+
+// Map each title to a thumbnail image that you upload in /images
+// (You can change file names/paths as you like.)
+const THUMBS = {
+  "Hindu Daily Analysis": "images/hindu-daily.jpg",
+  "Mint": "images/mint.jpg",
+  "The Telegraph": "images/telegraph.jpg",
+  "Financial Express": "images/financial-express.jpg",
+  "Business Standard": "images/business-standard.jpg",
+  "The Hindu": "images/the-hindu.jpg",
+  "Times Of India": "images/times-of-india.jpg",
+  "Economic Times": "images/economic-times.jpg"
+};
+
+// Lightweight inline placeholder if a thumbnail is missing
+const DEFAULT_THUMB =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(`<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#0f1b3d"/><stop offset="100%" stop-color="#182a5c"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><g fill="#cfe0ff" opacity="0.55" font-family="Arial" font-size="24"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle">No thumbnail</text></g></svg>`);
 
 // ===== 2) UI helpers =====
 const $ = sel => document.querySelector(sel);
@@ -170,19 +187,20 @@ function deriveViewerURL(url){
 function createCard(title, link){
   const div = document.createElement('div');
   div.className = 'card';
+  const imgSrc = THUMBS[title] || DEFAULT_THUMB;
+  const isReady = !!link;
+  const todayStr = new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'});
+
   div.innerHTML = `
     <div class="title">${title}</div>
-    <div class="muted">${link ? 'Ready' : 'No link yet'} · ${new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})}</div>
-    <div class="row">
-      <button class="ok" data-act="open">Open</button>
-      <button class="copy" data-act="copy">Copy link</button>
-      ${link ? '' : '<span class="muted">(waiting for today\'s update)</span>'}
-    </div>
+    <div class="muted">${isReady ? 'Ready' : 'Not Ready'} · ${todayStr}</div>
+    <div class="thumbWrap"><img class="thumb ${isReady ? '' : 'disabled'}" src="${imgSrc}" alt="${title} front page" /></div>
   `;
-  div.querySelector('[data-act="open"]').onclick = () => openViewer(title, link);
-  div.querySelector('[data-act="copy"]').onclick = async () => {
-    if (!link) return alert('No link for this title today.');
-    try{ await navigator.clipboard.writeText(link); alert('Link copied to clipboard'); }catch(e){ prompt('Copy this link:', link); }
+
+  const img = div.querySelector('.thumb');
+  img.onclick = () => {
+    if (!isReady) { alert('No link available for this title today yet.'); return; }
+    openViewer(title, link);
   };
   return div;
 }
