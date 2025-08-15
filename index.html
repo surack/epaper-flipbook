@@ -175,7 +175,7 @@ function createCard(title, link){
     <div class="muted">${link ? 'Ready' : 'No link yet'} · ${new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})}</div>
     <div class="row">
       <button class="ok" data-act="open">Open</button>
-      # <button class="copy" data-act="copy">Copy link</button>
+      <button class="copy" data-act="copy">Copy link</button>
       ${link ? '' : '<span class="muted">(waiting for today\'s update)</span>'}
     </div>
   `;
